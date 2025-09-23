@@ -334,6 +334,56 @@ except ValueError as e:
     p10 = p50 = p90 = pred_price
     uncertainty_available = False
 
+# KPI Cards Row
+st.subheader("Key Metrics")
+
+# Compute additional metrics for KPIs
+if uncertainty_available:
+    predicted_value = p50
+    band_width = p90 - p10
+else:
+    predicted_value = pred_price
+    band_width = 0  # No uncertainty available
+
+# Compute median of filtered comps
+if not filtered_df.empty:
+    comps_median = filtered_df['price'].median()
+    user_percentile = (filtered_df['price'] <= predicted_value).mean() * 100
+else:
+    comps_median = 0
+    user_percentile = 0
+
+# Create KPI cards
+kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+
+with kpi_col1:
+    st.metric(
+        label="Predicted (P50)",
+        value=f"${predicted_value:,.0f}",
+        help="Median prediction from RandomForest model"
+    )
+
+with kpi_col2:
+    st.metric(
+        label="P10–P90 Band Width",
+        value=f"${band_width:,.0f}",
+        help="Uncertainty range: difference between 90th and 10th percentiles"
+    )
+
+with kpi_col3:
+    st.metric(
+        label="Median of Comps",
+        value=f"${comps_median:,.0f}",
+        help="Median price of filtered comparable listings"
+    )
+
+with kpi_col4:
+    st.metric(
+        label="My Percentile vs Comps",
+        value=f"{user_percentile:.0f}%",
+        help="Where your predicted price ranks among similar listings"
+    )
+
 # Main layout
 col1, col2 = st.columns([1, 2])
 with col1:
