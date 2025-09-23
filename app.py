@@ -317,11 +317,7 @@ with st.sidebar:
 X_row = build_feature_row(df, selected_ng, selected_rt, selected_min_nights)
 X_row = align_features_to_model(X_row, feature_names_in)
 
-# Model predicts log-price; convert back to price with expm1
-log_pred = model.predict(X_row)[0]
-pred_price = float(np.expm1(log_pred))
-
-# Compute uncertainty intervals
+# Compute uncertainty intervals and get P50 prediction
 try:
     # Create hashable parameters for caching
     model_hash = f"model_{hash(str(MODEL_PATH))}"
@@ -329,8 +325,12 @@ try:
     
     p10, p50, p90 = get_rf_quantiles(model_hash, X_row_values)
     uncertainty_available = True
+    # Use P50 as our main prediction (more robust than ensemble average)
+    pred_price = p50
 except ValueError as e:
     # Model is not a tree ensemble, fall back to point prediction
+    log_pred = model.predict(X_row)[0]
+    pred_price = float(np.expm1(log_pred))
     p10 = p50 = p90 = pred_price
     uncertainty_available = False
 
@@ -352,12 +352,9 @@ if filtered_df.empty:
 st.subheader("Key Metrics")
 
 # Compute additional metrics for KPIs
-if uncertainty_available:
-    predicted_value = p50
-    band_width = p90 - p10
-else:
-    predicted_value = pred_price
-    band_width = 0  # No uncertainty available
+# pred_price is now always P50 when uncertainty is available, or fallback prediction otherwise
+predicted_value = pred_price
+band_width = p90 - p10 if uncertainty_available else 0
 
 # Compute median of filtered comps
 if not filtered_df.empty:
@@ -444,11 +441,8 @@ st.subheader("Price Distribution (Filtered Listings)")
 if filtered_df.empty:
     st.warning("No listings match the selected filters.")
 else:
-    # Use the already computed values from KPI section
-    if uncertainty_available:
-        predicted_price = p50
-    else:
-        predicted_price = pred_price
+    # Use the consistent prediction value
+    predicted_price = pred_price
     
     # Create tabs for histogram and ECDF
     tab1, tab2 = st.tabs(["Histogram", "ECDF"])
