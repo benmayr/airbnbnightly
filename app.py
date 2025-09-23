@@ -277,6 +277,110 @@ def get_rf_quantiles(model_hash: str, X_row_values: tuple) -> Tuple[float, float
 
 
 # -----------------------------
+# Partial Dependence Plot (PDP) Helper
+# -----------------------------
+def create_representative_row(df: pd.DataFrame, feature_names_in) -> pd.DataFrame:
+    """Create a representative row using medians for numeric and modes for categorical features."""
+    # Start with the current user's row as base
+    base_row = X_row.copy()
+    
+    # For numeric features, use median from the dataset
+    numeric_features = ['availability_365', 'latitude', 'longitude']
+    for feat in numeric_features:
+        if feat in base_row.columns:
+            base_row[feat] = df[feat].median()
+    
+    # For categorical features, use mode (most frequent value)
+    # This is a simplified approach - in practice you might want more sophisticated logic
+    categorical_mappings = {
+        'neighbourhood_group': df['neighbourhood_group'].mode().iloc[0] if not df['neighbourhood_group'].mode().empty else 'Manhattan',
+        'room_type': df['room_type'].mode().iloc[0] if not df['room_type'].mode().empty else 'Entire home/apt',
+        'min_nights_bucket': 'min2_6'  # Default to most common bucket
+    }
+    
+    # Update categorical features in the base row
+    for cat_feat, default_value in categorical_mappings.items():
+        # Find columns that start with this categorical feature
+        cat_cols = [col for col in base_row.columns if col.startswith(cat_feat)]
+        if cat_cols:
+            # Reset all categorical columns to 0
+            base_row[cat_cols] = 0
+            # Set the default value column to 1
+            default_col = f"{cat_feat}_{default_value}"
+            if default_col in base_row.columns:
+                base_row[default_col] = 1
+    
+    return base_row
+
+
+def pdp(model, df: pd.DataFrame, feature: str, grid: int = 30) -> pd.DataFrame:
+    """Compute Partial Dependence Plot for a numeric feature.
+    
+    Args:
+        model: Trained model (Pipeline or RandomForestRegressor)
+        df: Dataset for computing representative values
+        feature: Feature name to vary
+        grid: Number of grid points
+        
+    Returns:
+        DataFrame with columns [feature, pred] showing feature values vs predictions
+    """
+    # Create representative row
+    rep_row = create_representative_row(df, None)
+    
+    # Get feature range from the dataset
+    if feature == 'minimum_nights':
+        # For minimum_nights, create a range and convert to buckets
+        min_val, max_val = 1, 30  # Reasonable range for minimum nights
+        feature_values = np.linspace(min_val, max_val, grid)
+        
+        predictions = []
+        for val in feature_values:
+            # Create a copy of representative row
+            test_row = rep_row.copy()
+            
+            # Update minimum_nights bucket based on value
+            bucket = bucket_min_nights(val)
+            
+            # Reset all min_nights_bucket columns
+            bucket_cols = [col for col in test_row.columns if col.startswith('min_nights_bucket')]
+            for col in bucket_cols:
+                test_row[col] = 0
+            
+            # Set the appropriate bucket column
+            bucket_col = f"min_nights_bucket_{bucket}"
+            if bucket_col in test_row.columns:
+                test_row[bucket_col] = 1
+            
+            # Make prediction
+            pred = model.predict(test_row)[0]
+            predictions.append(float(np.expm1(pred)))  # Convert from log space
+        
+        return pd.DataFrame({
+            'minimum_nights': feature_values,
+            'pred': predictions
+        })
+    
+    else:
+        # For other numeric features, use their actual range
+        min_val = df[feature].min()
+        max_val = df[feature].max()
+        feature_values = np.linspace(min_val, max_val, grid)
+        
+        predictions = []
+        for val in feature_values:
+            test_row = rep_row.copy()
+            test_row[feature] = val
+            pred = model.predict(test_row)[0]
+            predictions.append(float(np.expm1(pred)))  # Convert from log space
+        
+        return pd.DataFrame({
+            feature: feature_values,
+            'pred': predictions
+        })
+
+
+# -----------------------------
 # UI Helpers
 # -----------------------------
 def center_title(text: str):
@@ -385,14 +489,14 @@ with kpi_col3:
     st.metric(
         label="Median of Comps",
         value=f"${comps_median:,.0f}",
-        help="Median price of filtered comparable listings"
+        help="Median price of other listings matching your filters (neighbourhood + room type)"
     )
 
 with kpi_col4:
     st.metric(
         label="My Percentile vs Comps",
         value=f"{user_percentile:.0f}%",
-        help="Where your predicted price ranks among similar listings"
+        help="Where your predicted price ranks among other listings with same filters"
     )
 
 # Main layout
@@ -525,4 +629,44 @@ else:
         
         st.altair_chart(ecdf_chart, use_container_width=True)
         st.caption(f"Percentile of predicted price among comps: {user_percentile:.1f}th percentile")
+
+# Partial Dependence Plot for minimum_nights
+with st.expander("What happens if I change minimum nights?"):
+    # Use filtered_df if it has enough data, otherwise fall back to full dataset
+    pdp_df = filtered_df if len(filtered_df) >= 50 else df
+    
+    if len(pdp_df) > 0:
+        # Compute PDP for minimum_nights
+        pdp_data = pdp(model, pdp_df, 'minimum_nights', grid=20)
+        
+        # Create line chart
+        pdp_chart = alt.Chart(pdp_data).mark_line(
+            color='#4e79a7',
+            strokeWidth=3
+        ).encode(
+            alt.X('minimum_nights:Q', title='Minimum Nights'),
+            alt.Y('pred:Q', title='Predicted Price (USD)')
+        ).properties(
+            height=300
+        )
+        
+        # Add current value as a point
+        current_point = alt.Chart(pd.DataFrame({
+            'minimum_nights': [selected_min_nights],
+            'pred': [pred_price]
+        })).mark_circle(
+            color='red',
+            size=100
+        ).encode(
+            alt.X('minimum_nights:Q'),
+            alt.Y('pred:Q')
+        )
+        
+        # Combine line and point
+        final_chart = (pdp_chart + current_point).resolve_scale(color='independent')
+        
+        st.altair_chart(final_chart, use_container_width=True)
+        st.caption(f"Red dot shows your current selection: {selected_min_nights} nights = ${pred_price:,.0f}")
+    else:
+        st.info("Not enough data to generate the partial dependence plot.")
 
