@@ -279,54 +279,39 @@ def get_rf_quantiles(model_hash: str, X_row_values: tuple) -> Tuple[float, float
 # -----------------------------
 # Partial Dependence Plot (PDP) Helper
 # -----------------------------
-def create_representative_row(df: pd.DataFrame, feature_names_in) -> pd.DataFrame:
-    """Create a representative row using medians for numeric and modes for categorical features."""
-    # Start with the current user's row as base
-    base_row = X_row.copy()
+def create_representative_row(df: pd.DataFrame, current_ng: str, current_rt: str, current_min_nights: int, feature_names_in) -> pd.DataFrame:
+    """Create a representative row using current user selections and dataset medians."""
+    # Build a fresh row based on current user selections
+    base_row = build_feature_row(df, current_ng, current_rt, current_min_nights)
+    base_row = align_features_to_model(base_row, feature_names_in)
     
-    # For numeric features, use median from the dataset
+    # For numeric features, use median from the dataset (but keep user's categorical choices)
     numeric_features = ['availability_365', 'latitude', 'longitude']
     for feat in numeric_features:
         if feat in base_row.columns:
             base_row[feat] = df[feat].median()
     
-    # For categorical features, use mode (most frequent value)
-    # This is a simplified approach - in practice you might want more sophisticated logic
-    categorical_mappings = {
-        'neighbourhood_group': df['neighbourhood_group'].mode().iloc[0] if not df['neighbourhood_group'].mode().empty else 'Manhattan',
-        'room_type': df['room_type'].mode().iloc[0] if not df['room_type'].mode().empty else 'Entire home/apt',
-        'min_nights_bucket': 'min2_6'  # Default to most common bucket
-    }
-    
-    # Update categorical features in the base row
-    for cat_feat, default_value in categorical_mappings.items():
-        # Find columns that start with this categorical feature
-        cat_cols = [col for col in base_row.columns if col.startswith(cat_feat)]
-        if cat_cols:
-            # Reset all categorical columns to 0
-            base_row[cat_cols] = 0
-            # Set the default value column to 1
-            default_col = f"{cat_feat}_{default_value}"
-            if default_col in base_row.columns:
-                base_row[default_col] = 1
-    
     return base_row
 
 
-def pdp(model, df: pd.DataFrame, feature: str, grid: int = 30) -> pd.DataFrame:
+def pdp(model, df: pd.DataFrame, feature: str, current_ng: str, current_rt: str, current_min_nights: int, feature_names_in, grid: int = 30) -> pd.DataFrame:
     """Compute Partial Dependence Plot for a numeric feature.
     
     Args:
         model: Trained model (Pipeline or RandomForestRegressor)
         df: Dataset for computing representative values
         feature: Feature name to vary
+        current_ng: Current neighbourhood group selection
+        current_rt: Current room type selection
+        current_min_nights: Current minimum nights selection
+        feature_names_in: Model feature names for alignment
         grid: Number of grid points
         
     Returns:
         DataFrame with columns [feature, pred] showing feature values vs predictions
     """
-    # Create representative row
-    rep_row = create_representative_row(df, None)
+    # Create representative row based on current user selections
+    rep_row = create_representative_row(df, current_ng, current_rt, current_min_nights, feature_names_in)
     
     # Get feature range from the dataset
     if feature == 'minimum_nights':
@@ -636,8 +621,8 @@ with st.expander("What happens if I change minimum nights?"):
     pdp_df = filtered_df if len(filtered_df) >= 50 else df
     
     if len(pdp_df) > 0:
-        # Compute PDP for minimum_nights
-        pdp_data = pdp(model, pdp_df, 'minimum_nights', grid=20)
+        # Compute PDP for minimum_nights with current user selections
+        pdp_data = pdp(model, pdp_df, 'minimum_nights', selected_ng, selected_rt, selected_min_nights, feature_names_in, grid=20)
         
         # Create line chart
         pdp_chart = alt.Chart(pdp_data).mark_line(
