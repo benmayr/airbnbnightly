@@ -398,11 +398,9 @@ with kpi_col4:
 # Main layout
 col1, col2 = st.columns([1, 2])
 with col1:
-    st.metric(label="Predicted nightly price (USD)", value=f"$ {pred_price:,.0f}")
-    
     # Display uncertainty summary
     if uncertainty_available:
-        st.caption(f"Predicted = ${p50:,.0f} (P10–P90: ${p10:,.0f}–${p90:,.0f})")
+        st.caption(f"Predicted = ${pred_price:,.0f} (P10–P90: ${p10:,.0f}–${p90:,.0f})")
     else:
         st.caption("Uncertainty intervals not available for this model type")
 
