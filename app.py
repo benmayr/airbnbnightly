@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.pipeline import Pipeline
 
 # -----------------------------
 # Configuration & Constants
@@ -79,7 +81,26 @@ def load_clean_dataset() -> pd.DataFrame:
 @st.cache_resource(show_spinner=True)
 def load_model():
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
+        # Try to download model from a URL provided via secrets or environment
+        model_url = None
+        try:
+            model_url = st.secrets.get("MODEL_URL", None)
+        except Exception:
+            model_url = None
+        if not model_url:
+            model_url = os.environ.get("MODEL_URL")
+        if model_url:
+            MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                import urllib.request
+                with urllib.request.urlopen(model_url, timeout=60) as resp, open(MODEL_PATH, "wb") as out:
+                    out.write(resp.read())
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Failed to download model from MODEL_URL: {model_url}. Error: {e}"
+                )
+        else:
+            raise FileNotFoundError(f"Model file not found at {MODEL_PATH} and no MODEL_URL provided in secrets/env.")
     model = joblib.load(MODEL_PATH)
     # Try to access feature names for alignment later
     feature_names = None
@@ -159,6 +180,55 @@ def align_features_to_model(X: pd.DataFrame, feature_names_in) -> pd.DataFrame:
 
 
 # -----------------------------
+# Demo Model Fallback (small, trained at startup if needed)
+# -----------------------------
+def build_training_matrix(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+    y = np.log1p(df["price"].astype(float))
+    base = pd.DataFrame(
+        {
+            "availability_365": df["availability_365"].astype(float),
+            "latitude": df["latitude"].astype(float),
+            "longitude": df["longitude"].astype(float),
+        }
+    )
+    buckets = pd.Series(
+        [bucket_min_nights(float(v)) for v in df["minimum_nights"]], index=df.index, name="min_nights_bucket"
+    )
+    cat = pd.DataFrame(
+        {
+            "neighbourhood_group": df["neighbourhood_group"].astype("category"),
+            "room_type": df["room_type"].astype("category"),
+            "min_nights_bucket": buckets.astype("category"),
+        }
+    )
+    dummies = pd.get_dummies(cat, columns=["neighbourhood_group", "room_type", "min_nights_bucket"], drop_first=False)
+    X = pd.concat([base, dummies], axis=1).astype(float)
+    return X, y
+
+
+def train_demo_model(df: pd.DataFrame) -> Tuple[Pipeline, np.ndarray]:
+    # Keep it small for fast startup
+    X, y = build_training_matrix(df)
+    model = Pipeline([
+        ("model", RandomForestRegressor(n_estimators=120, n_jobs=-1, random_state=42)),
+    ])
+    model.fit(X, y)
+    # Persist for subsequent runs (best effort)
+    try:
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, MODEL_PATH)
+    except Exception:
+        pass
+    # Extract feature names
+    feature_names = None
+    try:
+        feature_names = model.named_steps["model"].feature_names_in_
+    except Exception:
+        feature_names = np.array(X.columns)
+    return model, feature_names
+
+
+# -----------------------------
 # UI Helpers
 # -----------------------------
 def center_title(text: str):
@@ -179,7 +249,11 @@ center_title("NYC Airbnb Price Forecaster")
 
 with st.spinner("Loading data and model..."):
     df = load_clean_dataset()
-    model, feature_names_in = load_model()
+    try:
+        model, feature_names_in = load_model()
+    except FileNotFoundError:
+        st.info("No saved model found. Training a small demo model now…")
+        model, feature_names_in = train_demo_model(df)
 
 # Sidebar controls
 with st.sidebar:
@@ -246,3 +320,4 @@ forecast_df = pd.DataFrame({"date": forecast_index, "predicted_price": future_pr
 forecast_df = forecast_df.set_index("date")
 
 st.line_chart(forecast_df, height=260)
+
