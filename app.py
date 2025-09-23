@@ -410,26 +410,24 @@ else:
     )
     
     # Add vertical rules for quantiles
-    rules_data = pd.DataFrame({
-        'quantile': ['P10', 'P50', 'P90'],
-        'value': [p10, p50, p90],
-        'style': ['dashed', 'solid', 'dashed']
-    })
-    
-    rules = alt.Chart(rules_data).mark_rule(
+    # Create separate charts for solid and dashed lines
+    p50_rule = alt.Chart(pd.DataFrame({'value': [p50]})).mark_rule(
         color='red',
-        strokeDash=alt.condition(
-            alt.datum.style == 'dashed',
-            alt.value([5, 5]),
-            alt.value([0, 0])
-        )
+        strokeWidth=2
     ).encode(
-        x='value:Q',
-        size=alt.value(2)
+        x='value:Q'
+    )
+    
+    p10_p90_rule = alt.Chart(pd.DataFrame({'value': [p10, p90]})).mark_rule(
+        color='red',
+        strokeDash=[5, 5],
+        strokeWidth=2
+    ).encode(
+        x='value:Q'
     )
     
     # Combine histogram and rules
-    chart = (hist + rules).resolve_scale(color='independent')
+    chart = (hist + p50_rule + p10_p90_rule).resolve_scale(color='independent')
     
     st.altair_chart(chart, use_container_width=True)
     
