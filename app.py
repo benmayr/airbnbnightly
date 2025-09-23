@@ -229,6 +229,46 @@ def train_demo_model(df: pd.DataFrame) -> Tuple[Pipeline, np.ndarray]:
 
 
 # -----------------------------
+# Uncertainty Quantification
+# -----------------------------
+@st.cache_data(show_spinner=False)
+def get_rf_quantiles(model, X_row: pd.DataFrame) -> Tuple[float, float, float]:
+    """Compute P10, P50, P90 quantiles from RandomForest per-tree predictions.
+    
+    Args:
+        model: sklearn Pipeline with RandomForestRegressor or RandomForestRegressor
+        X_row: Single-row DataFrame with features
+        
+    Returns:
+        Tuple of (p10, p50, p90) in price space (not log space)
+    """
+    # Extract the actual RandomForest from Pipeline if needed
+    rf = model
+    if hasattr(model, 'named_steps') and 'model' in model.named_steps:
+        rf = model.named_steps['model']
+    
+    # Check if it's a tree ensemble
+    if not hasattr(rf, 'estimators_'):
+        raise ValueError("Model is not a tree ensemble (no estimators_ attribute)")
+    
+    # Get per-tree predictions (in log space)
+    tree_predictions = []
+    for tree in rf.estimators_:
+        tree_pred = tree.predict(X_row)[0]
+        tree_predictions.append(tree_pred)
+    
+    # Convert to price space
+    price_predictions = np.expm1(tree_predictions)
+    
+    # Compute quantiles
+    p10 = float(np.percentile(price_predictions, 10))
+    p50 = float(np.percentile(price_predictions, 50))
+    p90 = float(np.percentile(price_predictions, 90))
+    
+    return p10, p50, p90
+
+
+# -----------------------------
 # UI Helpers
 # -----------------------------
 def center_title(text: str):
@@ -273,10 +313,25 @@ X_row = align_features_to_model(X_row, feature_names_in)
 log_pred = model.predict(X_row)[0]
 pred_price = float(np.expm1(log_pred))
 
+# Compute uncertainty intervals
+try:
+    p10, p50, p90 = get_rf_quantiles(model, X_row)
+    uncertainty_available = True
+except ValueError as e:
+    # Model is not a tree ensemble, fall back to point prediction
+    p10 = p50 = p90 = pred_price
+    uncertainty_available = False
+
 # Main layout
 col1, col2 = st.columns([1, 2])
 with col1:
     st.metric(label="Predicted nightly price (USD)", value=f"$ {pred_price:,.0f}")
+    
+    # Display uncertainty summary
+    if uncertainty_available:
+        st.caption(f"Predicted = ${p50:,.0f} (P10–P90: ${p10:,.0f}–${p90:,.0f})")
+    else:
+        st.caption("Uncertainty intervals not available for this model type")
 
 with col2:
     # Map: filter by selected sidebar filters
@@ -312,18 +367,9 @@ with col2:
         opacity=0.5,
         hover_data={"price": True, "availability_365": True, "neighbourhood": True, "room_type": True},
     )
-    
-    # Update colorbar to show both log price and actual price
     fig.update_layout(
         mapbox_style="open-street-map",
         margin=dict(l=0, r=0, t=0, b=0),
-        coloraxis_colorbar=dict(
-            title="Price (USD)",
-            tickvals=[np.log(50), np.log(100), np.log(200), np.log(500), np.log(1000), np.log(2000)],
-            ticktext=["$50", "$100", "$200", "$500", "$1,000", "$2,000"],
-            len=0.8,
-            y=0.1,
-        )
     )
     fig.update_layout(mapbox_center={"lat": center_lat, "lon": center_lon})
 
