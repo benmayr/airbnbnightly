@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import altair as alt
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.pipeline import Pipeline
 
@@ -386,14 +387,57 @@ with col2:
 
     st.plotly_chart(fig, use_container_width=True)
 
-# Naïve 7-day forecast plot
-multipliers = np.array([1.00, 1.02, 1.03, 1.01, 0.98, 0.97, 1.00], dtype=float)
-base = pred_price
-future_prices = base * multipliers
+# Price distribution histogram for filtered comps
+st.subheader("Price Distribution (Filtered Listings)")
 
-forecast_index = [datetime.today().date() + timedelta(days=i) for i in range(7)]
-forecast_df = pd.DataFrame({"date": forecast_index, "predicted_price": future_prices})
-forecast_df = forecast_df.set_index("date")
-
-st.line_chart(forecast_df, height=260)
+if filtered_df.empty:
+    st.info("No listings match the selected filters.")
+else:
+    # Create histogram with quantile rules
+    hist = alt.Chart(filtered_df).mark_bar(
+        color='#4e79a7',
+        opacity=0.7
+    ).add_selection(
+        alt.selection_interval()
+    ).encode(
+        alt.X('price:Q', 
+              bin=alt.Bin(maxbins=40),
+              title='Nightly price (USD)',
+              scale=alt.Scale(zero=False)),
+        alt.Y('count():Q', title='Listings')
+    ).properties(
+        height=220
+    )
+    
+    # Add vertical rules for quantiles
+    rules_data = pd.DataFrame({
+        'quantile': ['P10', 'P50', 'P90'],
+        'value': [p10, p50, p90],
+        'style': ['dashed', 'solid', 'dashed']
+    })
+    
+    rules = alt.Chart(rules_data).mark_rule(
+        color='red',
+        strokeDash=alt.condition(
+            alt.datum.style == 'dashed',
+            alt.value([5, 5]),
+            alt.value([0, 0])
+        )
+    ).encode(
+        x='value:Q',
+        size=alt.value(2)
+    )
+    
+    # Combine histogram and rules
+    chart = (hist + rules).resolve_scale(color='independent')
+    
+    st.altair_chart(chart, use_container_width=True)
+    
+    # Compute user's predicted percentile within filtered data
+    if uncertainty_available:
+        user_percentile = (filtered_df['price'] <= p50).mean() * 100
+        st.caption(f"Your predicted price (${p50:,.0f}) is at the {user_percentile:.1f}th percentile of similar listings.")
+    else:
+        user_percentile = (filtered_df['price'] <= pred_price).mean() * 100
+        st.caption(f"Your predicted price (${pred_price:,.0f}) is at the {user_percentile:.1f}th percentile of similar listings.")
 
