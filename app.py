@@ -334,6 +334,20 @@ except ValueError as e:
     p10 = p50 = p90 = pred_price
     uncertainty_available = False
 
+# Map: filter by selected sidebar filters
+filtered_df = df[
+    (df["neighbourhood_group"] == selected_ng) & 
+    (df["room_type"] == selected_rt)
+].dropna(subset=["latitude", "longitude", "price"]).copy()
+
+if filtered_df.empty:
+    # Fallback to just neighbourhood_group if no exact matches
+    filtered_df = df[df["neighbourhood_group"] == selected_ng].dropna(subset=["latitude", "longitude", "price"]).copy()
+
+if filtered_df.empty:
+    # Final fallback to all data
+    filtered_df = df.dropna(subset=["latitude", "longitude", "price"]).copy()
+
 # KPI Cards Row
 st.subheader("Key Metrics")
 
@@ -396,19 +410,6 @@ with col1:
         st.caption("Uncertainty intervals not available for this model type")
 
 with col2:
-    # Map: filter by selected sidebar filters
-    filtered_df = df[
-        (df["neighbourhood_group"] == selected_ng) & 
-        (df["room_type"] == selected_rt)
-    ].dropna(subset=["latitude", "longitude", "price"]).copy()
-    
-    if filtered_df.empty:
-        # Fallback to just neighbourhood_group if no exact matches
-        filtered_df = df[df["neighbourhood_group"] == selected_ng].dropna(subset=["latitude", "longitude", "price"]).copy()
-    
-    if filtered_df.empty:
-        # Final fallback to all data
-        filtered_df = df.dropna(subset=["latitude", "longitude", "price"]).copy()
     
     # Center map on filtered data
     center_lat = float(filtered_df["latitude"].median()) if not filtered_df.empty else NYC_CENTER["lat"]
@@ -443,12 +444,10 @@ st.subheader("Price Distribution (Filtered Listings)")
 if filtered_df.empty:
     st.warning("No listings match the selected filters.")
 else:
-    # Compute user's predicted percentile within filtered data
+    # Use the already computed values from KPI section
     if uncertainty_available:
-        user_percentile = (filtered_df['price'] <= p50).mean() * 100
         predicted_price = p50
     else:
-        user_percentile = (filtered_df['price'] <= pred_price).mean() * 100
         predicted_price = pred_price
     
     # Create tabs for histogram and ECDF
