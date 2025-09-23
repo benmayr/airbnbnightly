@@ -312,9 +312,18 @@ with col2:
         opacity=0.5,
         hover_data={"price": True, "availability_365": True, "neighbourhood": True, "room_type": True},
     )
+    
+    # Update colorbar to show both log price and actual price
     fig.update_layout(
         mapbox_style="open-street-map",
         margin=dict(l=0, r=0, t=0, b=0),
+        coloraxis_colorbar=dict(
+            title="Price (USD)",
+            tickvals=[np.log(50), np.log(100), np.log(200), np.log(500), np.log(1000), np.log(2000)],
+            ticktext=["$50", "$100", "$200", "$500", "$1,000", "$2,000"],
+            len=0.8,
+            y=0.1,
+        )
     )
     fig.update_layout(mapbox_center={"lat": center_lat, "lon": center_lon})
 
