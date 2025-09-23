@@ -232,16 +232,20 @@ def train_demo_model(df: pd.DataFrame) -> Tuple[Pipeline, np.ndarray]:
 # Uncertainty Quantification
 # -----------------------------
 @st.cache_data(show_spinner=False)
-def get_rf_quantiles(model, X_row: pd.DataFrame) -> Tuple[float, float, float]:
+def get_rf_quantiles(model_hash: str, X_row_values: tuple) -> Tuple[float, float, float]:
     """Compute P10, P50, P90 quantiles from RandomForest per-tree predictions.
     
     Args:
-        model: sklearn Pipeline with RandomForestRegressor or RandomForestRegressor
-        X_row: Single-row DataFrame with features
+        model_hash: Hashable string identifier for the model
+        X_row_values: Tuple of feature values (hashable)
         
     Returns:
         Tuple of (p10, p50, p90) in price space (not log space)
     """
+    # Get the model from the global cache (it's already cached with @st.cache_resource)
+    # We'll access it through the model loading function
+    model, _ = load_model()
+    
     # Extract the actual RandomForest from Pipeline if needed
     rf = model
     if hasattr(model, 'named_steps') and 'model' in model.named_steps:
@@ -250,6 +254,9 @@ def get_rf_quantiles(model, X_row: pd.DataFrame) -> Tuple[float, float, float]:
     # Check if it's a tree ensemble
     if not hasattr(rf, 'estimators_'):
         raise ValueError("Model is not a tree ensemble (no estimators_ attribute)")
+    
+    # Reconstruct X_row from the hashable values
+    X_row = pd.DataFrame([X_row_values])
     
     # Get per-tree predictions (in log space)
     tree_predictions = []
@@ -315,7 +322,11 @@ pred_price = float(np.expm1(log_pred))
 
 # Compute uncertainty intervals
 try:
-    p10, p50, p90 = get_rf_quantiles(model, X_row)
+    # Create hashable parameters for caching
+    model_hash = f"model_{hash(str(MODEL_PATH))}"
+    X_row_values = tuple(X_row.iloc[0].values)
+    
+    p10, p50, p90 = get_rf_quantiles(model_hash, X_row_values)
     uncertainty_available = True
 except ValueError as e:
     # Model is not a tree ensemble, fall back to point prediction
