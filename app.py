@@ -387,55 +387,101 @@ with col2:
 
     st.plotly_chart(fig, use_container_width=True)
 
-# Price distribution histogram for filtered comps
+# Price distribution charts for filtered comps
 st.subheader("Price Distribution (Filtered Listings)")
 
 if filtered_df.empty:
-    st.info("No listings match the selected filters.")
+    st.warning("No listings match the selected filters.")
 else:
-    # Create histogram with quantile rules
-    hist = alt.Chart(filtered_df).mark_bar(
-        color='#4e79a7',
-        opacity=0.7
-    ).add_selection(
-        alt.selection_interval()
-    ).encode(
-        alt.X('price:Q', 
-              bin=alt.Bin(maxbins=40),
-              title='Nightly price (USD)',
-              scale=alt.Scale(zero=False)),
-        alt.Y('count():Q', title='Listings')
-    ).properties(
-        height=220
-    )
-    
-    # Add vertical rules for quantiles
-    # Create separate charts for solid and dashed lines
-    p50_rule = alt.Chart(pd.DataFrame({'value': [p50]})).mark_rule(
-        color='red',
-        strokeWidth=2
-    ).encode(
-        x='value:Q'
-    )
-    
-    p10_p90_rule = alt.Chart(pd.DataFrame({'value': [p10, p90]})).mark_rule(
-        color='red',
-        strokeDash=[5, 5],
-        strokeWidth=2
-    ).encode(
-        x='value:Q'
-    )
-    
-    # Combine histogram and rules
-    chart = (hist + p50_rule + p10_p90_rule).resolve_scale(color='independent')
-    
-    st.altair_chart(chart, use_container_width=True)
-    
     # Compute user's predicted percentile within filtered data
     if uncertainty_available:
         user_percentile = (filtered_df['price'] <= p50).mean() * 100
-        st.caption(f"Your predicted price (${p50:,.0f}) is at the {user_percentile:.1f}th percentile of similar listings.")
+        predicted_price = p50
     else:
         user_percentile = (filtered_df['price'] <= pred_price).mean() * 100
-        st.caption(f"Your predicted price (${pred_price:,.0f}) is at the {user_percentile:.1f}th percentile of similar listings.")
+        predicted_price = pred_price
+    
+    # Create tabs for histogram and ECDF
+    tab1, tab2 = st.tabs(["Histogram", "ECDF"])
+    
+    with tab1:
+        # Create histogram with quantile rules
+        hist = alt.Chart(filtered_df).mark_bar(
+            color='#4e79a7',
+            opacity=0.7
+        ).add_selection(
+            alt.selection_interval()
+        ).encode(
+            alt.X('price:Q', 
+                  bin=alt.Bin(maxbins=40),
+                  title='Nightly price (USD)',
+                  scale=alt.Scale(zero=False)),
+            alt.Y('count():Q', title='Listings')
+        ).properties(
+            height=220
+        )
+        
+        # Add vertical rules for quantiles
+        # Create separate charts for solid and dashed lines
+        p50_rule = alt.Chart(pd.DataFrame({'value': [p50]})).mark_rule(
+            color='red',
+            strokeWidth=2
+        ).encode(
+            x='value:Q'
+        )
+        
+        p10_p90_rule = alt.Chart(pd.DataFrame({'value': [p10, p90]})).mark_rule(
+            color='red',
+            strokeDash=[5, 5],
+            strokeWidth=2
+        ).encode(
+            x='value:Q'
+        )
+        
+        # Combine histogram and rules
+        chart = (hist + p50_rule + p10_p90_rule).resolve_scale(color='independent')
+        
+        st.altair_chart(chart, use_container_width=True)
+        st.caption(f"Your predicted price (${predicted_price:,.0f}) is at the {user_percentile:.1f}th percentile of similar listings.")
+    
+    with tab2:
+        # Create ECDF
+        # Sort prices and compute cumulative percentages
+        sorted_prices = np.sort(filtered_df['price'].values)
+        n = len(sorted_prices)
+        cumulative_share = np.arange(1, n + 1) / n * 100
+        
+        ecdf_data = pd.DataFrame({
+            'price': sorted_prices,
+            'cumulative_share': cumulative_share
+        })
+        
+        # Create ECDF line
+        ecdf_line = alt.Chart(ecdf_data).mark_line(
+            color='#4e79a7',
+            strokeWidth=2
+        ).encode(
+            alt.X('price:Q', title='Nightly price (USD)'),
+            alt.Y('cumulative_share:Q', title='Cumulative share (%)')
+        ).properties(
+            height=220
+        )
+        
+        # Add point for predicted price
+        predicted_point = alt.Chart(pd.DataFrame({
+            'price': [predicted_price],
+            'cumulative_share': [user_percentile]
+        })).mark_circle(
+            color='red',
+            size=100
+        ).encode(
+            alt.X('price:Q'),
+            alt.Y('cumulative_share:Q')
+        )
+        
+        # Combine ECDF and point
+        ecdf_chart = (ecdf_line + predicted_point).resolve_scale(color='independent')
+        
+        st.altair_chart(ecdf_chart, use_container_width=True)
+        st.caption(f"Percentile of predicted price among comps: {user_percentile:.1f}th percentile")
 
