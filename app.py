@@ -279,18 +279,28 @@ with col1:
     st.metric(label="Predicted nightly price (USD)", value=f"$ {pred_price:,.0f}")
 
 with col2:
-    # Map: filter by selected neighbourhood_group for zoom center only
-    focus_df = df[df["neighbourhood_group"] == selected_ng]
-    if focus_df.empty:
-        focus_df = df
-    center_lat = float(focus_df["latitude"].median()) if not focus_df.empty else NYC_CENTER["lat"]
-    center_lon = float(focus_df["longitude"].median()) if not focus_df.empty else NYC_CENTER["lon"]
-
-    map_df = df.dropna(subset=["latitude", "longitude", "price"]).copy()
-    map_df["log_price"] = np.log(map_df["price"].astype(float))
+    # Map: filter by selected sidebar filters
+    filtered_df = df[
+        (df["neighbourhood_group"] == selected_ng) & 
+        (df["room_type"] == selected_rt)
+    ].dropna(subset=["latitude", "longitude", "price"]).copy()
+    
+    if filtered_df.empty:
+        # Fallback to just neighbourhood_group if no exact matches
+        filtered_df = df[df["neighbourhood_group"] == selected_ng].dropna(subset=["latitude", "longitude", "price"]).copy()
+    
+    if filtered_df.empty:
+        # Final fallback to all data
+        filtered_df = df.dropna(subset=["latitude", "longitude", "price"]).copy()
+    
+    # Center map on filtered data
+    center_lat = float(filtered_df["latitude"].median()) if not filtered_df.empty else NYC_CENTER["lat"]
+    center_lon = float(filtered_df["longitude"].median()) if not filtered_df.empty else NYC_CENTER["lon"]
+    
+    filtered_df["log_price"] = np.log(filtered_df["price"].astype(float))
 
     fig = px.scatter_mapbox(
-        map_df,
+        filtered_df,
         lat="latitude",
         lon="longitude",
         color="log_price",
