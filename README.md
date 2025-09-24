@@ -1,4 +1,4 @@
-# NYC Airbnb Price Forecaster
+# NYC Airbnb Price Forecaster https://airbnb-nightly-rates.streamlit.app/
 
 A machine learning application that predicts Airbnb nightly prices in New York City using ensemble methods and uncertainty quantification. Built with Python and Streamlit, this application demonstrates advanced data science techniques including feature engineering, model validation, and real-time prediction with confidence intervals.
 
